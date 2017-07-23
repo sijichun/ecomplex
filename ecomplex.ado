@@ -186,9 +186,9 @@ program define ecomplex
 		quietly: gen `temp_sum_p'=`M'*`d'/`u'
 		quietly: egen `c_n'=total(`temp_sum_c'), by(`country' `time')
 		quietly: egen `p_n'=total(`temp_sum_p'), by(`product' `time')
-		quietly: gen `gen'_mr1_country=`c_n'
-		quietly: gen `gen'_mr1_product=`p_n'
-		local `keepvar_mr1' "`gen'_mr1_country `gen'_mr1_product"
+		quietly: gen `gen'_MR1_country=`c_n'
+		quietly: gen `gen'_MR1_product=`p_n'
+		local `keepvar_mr1' "`gen'_MR1_country `gen'_MR1_product"
 		drop `temp_sum_c' `temp_sum_p' `c_n' `p_n'
 	}
 	********* Fitness-Complexity Method ********
