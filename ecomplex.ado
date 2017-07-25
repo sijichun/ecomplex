@@ -79,11 +79,6 @@ mata set matastrict on
 		fm=Mrowsum*Mcolsum
 		Mstar=M:/fm
     MM=M*Mstar'
-		/* normalize
-		Mrowsum=rowsum(MM)
-		fm=Mrowsum*J(1,cols(MM),1)
-		MM=MM:/fm
-		*/
 		// eigenvector
 		eigensystemselecti(MM, (1,2), X=., L=.)
 		v=Re(X[.,2])
@@ -94,9 +89,13 @@ end
 cap program drop ecomplex
 program define ecomplex
 	version 14
-	syntax varlist(max=1), country(varname) product(varname) time(varname) [, mr mr1 fcm mfcm gen(name) rca cv(real 1) ignore(integer 0) maxiter(integer 500) tol(real 1e-6) display]
-	if "`mr'"=="" & "`fcm'"=="" & "`mfcm'"=="" & "`mr1'"==""{
-		di as err "Please give one or more methods, i.e. mr or(and) mr1 or(and) fcm or(and) mfcm."
+	syntax varlist(max=1), country(varname) product(varname) time(varname) [, mreig mr(integer 0) fcm mfcm gen(name) rca cv(real 1) ignore(integer 0) maxiter(integer 500) tol(real 1e-6) display]
+	if `mr'<=0 & "`fcm'"=="" & "`mfcm'"=="" & "`mreig'"==""{
+		di as err "Please give one or more methods, i.e. mr(d) or(and) mreig or(and) fcm or(and) mfcm."
+		exit 198
+	}
+	if `mr'<=0{
+		di as err "Positive integer 'd' should be given in the option mr(d)."
 		exit 198
 	}
 	** if RCA index is given, rca should be set, then go on;
@@ -158,20 +157,23 @@ program define ecomplex
 	tempvar num_country num_product
 	quietly: egen `num_country'=count(`time'), by(`time' `product')
 	quietly: egen `num_product'=count(`time'), by(`time' `country')
-	tempname keepvar_mr keepvar_fcm keepvar_mfcm keepvar_mr1
+	tempname keepvar_mreig keepvar_fcm keepvar_mfcm keepvar_mr
 	********* Method of Reflections ********
-	local `keepvar_mr' ""
+	local `keepvar_mreig' ""
 	tempvar mr_temp_country mr_temp_product
-	if "`mr'"=="mr"{
+	if "`mreig'"=="mreig"{
+		if "`display'"=="display"{
+			disp "Compute Complexity Index with the Method of Reflections (MR), 2nd largest eigenvector is calculated."
+		}
 		quietly: ecomplex_mr `M', country(`country') product(`product') time(`time') gen_country(`mr_temp_country') gen_product(`mr_temp_product')
 		tempvar mean_p std_p mean_c std_c
 		quietly: egen `mean_c'=mean(`mr_temp_country'), by(`time' `product')
 		quietly: egen `std_c' =  sd(`mr_temp_country'), by(`time' `product')
 		quietly: egen `mean_p'=mean(`mr_temp_product'), by(`time' `country')
 		quietly: egen `std_p' =  sd(`mr_temp_product'), by(`time' `country')
-		quietly: gen `gen'_MR_country=(`mr_temp_country'-`mean_c')/`std_c'
-		quietly: gen `gen'_MR_product=(`mr_temp_product'-`mean_p')/`std_p'
-		local `keepvar_mr' "`gen'_MR_country `gen'_MR_product"
+		quietly: gen `gen'_MREIG_country=(`mr_temp_country'-`mean_c')/`std_c'
+		quietly: gen `gen'_MREIG_product=(`mr_temp_product'-`mean_p')/`std_p'
+		local `keepvar_mreig' "`gen'_MREIG_country `gen'_MREIG_product"
 	}
 	*** init for iterations
 	tempvar c_n_1 p_n_1 c_n p_n temp_sum_c temp_sum_p abs_error sum_c_n sum_p_n p_n_temp
@@ -180,16 +182,29 @@ program define ecomplex
 	quietly: gen `c_n_1'=1
 	quietly: gen `p_n_1'=1
 	********* Method of Reflections - one-step iteration ********
-	local `keepvar_mr1' ""
-	if "`mr1'"=="mr1"{
-		quietly: gen `temp_sum_c'=`M'*`u'/`d'
-		quietly: gen `temp_sum_p'=`M'*`d'/`u'
-		quietly: egen `c_n'=total(`temp_sum_c'), by(`country' `time')
-		quietly: egen `p_n'=total(`temp_sum_p'), by(`product' `time')
-		quietly: gen `gen'_MR1_country=`c_n'
-		quietly: gen `gen'_MR1_product=`p_n'
-		local `keepvar_mr1' "`gen'_MR1_country `gen'_MR1_product"
-		drop `temp_sum_c' `temp_sum_p' `c_n' `p_n'
+	local `keepvar_mr' ""
+	if `mr'>0{
+		if "`display'"=="display"{
+			disp "Compute Complexity Index with the Method of Reflections (MR), with iteration times=" `mr'
+		}
+		** init **
+		quietly: replace `c_n_1'=`d'
+		quietly: replace `p_n_1'=`u'
+		scalar `iter'=0
+		** begin iteration
+		while  `iter'<`mr'{
+			quietly: gen `temp_sum_c'=`M'*`p_n_1'/`d'
+			quietly: gen `temp_sum_p'=`M'*`c_n_1'/`u'
+			quietly: egen `c_n'=total(`temp_sum_c'), by(`country' `time')
+			quietly: egen `p_n'=total(`temp_sum_p'), by(`product' `time')
+			scalar `iter'=`iter'+1
+			quietly: drop `temp_sum_c' `temp_sum_p' `p_n_1' `c_n_1'
+			rename `c_n' `c_n_1'
+			rename `p_n' `p_n_1'
+		}
+		quietly: gen `gen'_MR`mr'_country=`c_n_1'
+		quietly: gen `gen'_MR`mr'_product=`p_n_1'
+		local `keepvar_mr' "`gen'_MR`mr'_country `gen'_MR`mr'_product"
 	}
 	********* Fitness-Complexity Method ********
 	local `keepvar_fcm' ""
@@ -276,7 +291,7 @@ program define ecomplex
 		local `keepvar_mfcm' "`gen'_MFCM_country `gen'_MFCM_product"
 	}
 	// finally, merge file
-	quietly: keep `country' `time' `product' ``keepvar_mr'' ``keepvar_mr1'' ``keepvar_fcm'' ``keepvar_mfcm''
+	quietly: keep `country' `time' `product' ``keepvar_mreig'' ``keepvar_mr'' ``keepvar_fcm'' ``keepvar_mfcm''
 	tempfile mergefile
 	quietly: save `mergefile', replace
 	restore
